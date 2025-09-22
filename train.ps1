@@ -1,4 +1,4 @@
-﻿# train.ps1
+# train.ps1
 # Yahoo! 路線情報: 運転見合わせ/再開の路線を抽出し、詳細ページから運転計画を取得
 # DOM型 (ParsedHtml) を利用
 
@@ -39,7 +39,10 @@ if(-not $div){
 # ② <tr>ごとに処理
 $trs = $div.getElementsByTagName("tr")
 $result = @()
-$base = "https://transit.yahoo.co.jp"
+$baseUri = [uri]$Url
+if($resp.BaseResponse -and $resp.BaseResponse.ResponseUri){
+  $baseUri = [uri]$resp.BaseResponse.ResponseUri
+}
 
 foreach($tr in $trs){
   $tds = $tr.getElementsByTagName("td")
@@ -48,9 +51,28 @@ foreach($tr in $trs){
   $lineNode = $tds.item(0).getElementsByTagName("a") | Select-Object -First 1
   if(-not $lineNode){ continue }
 
-  $lineName  = $lineNode.innerText.Trim()
-  $href      = $lineNode.href
-  $detailUrl = if($href -like "http*"){ $href } else { $base + $href }
+  $lineName = $lineNode.innerText.Trim()
+
+  $hrefValue = $lineNode.getAttribute("href", 2)
+  if([string]::IsNullOrWhiteSpace($hrefValue)){
+    $hrefValue = $lineNode.href
+  }
+
+  $detailUri = $null
+  if(-not [string]::IsNullOrWhiteSpace($hrefValue)){
+    if([System.Uri]::TryCreate($hrefValue, [System.UriKind]::Absolute, [ref]$detailUri)){
+      if($detailUri.Scheme -eq "about"){
+        $detailUri = $null
+      }
+    }
+
+    if(-not $detailUri){
+      [System.Uri]::TryCreate($baseUri, $hrefValue, [ref]$detailUri) | Out-Null
+    }
+  }
+
+  if(-not $detailUri){ continue }
+  $detailUrl = $detailUri.AbsoluteUri
 
   $status = $tds.item(1).innerText.Trim()
   $info   = $tds.item(2).innerText.Trim()

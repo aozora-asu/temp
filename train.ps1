@@ -18,7 +18,7 @@ if(-not $resp){ return }
 
 $doc = $resp.ParsedHtml
 $div = $doc.getElementById("mdStatusTroubleLine")
-if(-not $div){ return }   # 通知しないで終了
+if(-not $div){ return }   # 異常なし → 通知せず終了
 
 # <tr>ごとに処理
 $trs = $div.getElementsByTagName("tr")
@@ -34,24 +34,50 @@ foreach($tr in $trs){
 
   $lineName  = $lineNode.innerText.Trim()
   $href      = $lineNode.href
-  $detailUrl = if($href -like "http*"){ $href } else { $base + $href }
+
+  # URL補正（about:/... を除去して正しいURLにする）
+  if ($href -like "http*") {
+    $detailUrl = $href
+  }
+  elseif ($href.StartsWith("/")) {
+    $detailUrl = $base + $href
+  }
+  else {
+    $detailUrl = $base + ($href -replace "^about:","")
+  }
 
   $status = $tds.item(1).innerText.Trim()
-  $info   = $tds.item(2).innerText.Trim()
 
   if($status -in @("運転見合わせ","運転再開")){
-    # 詳細ページ
+    # 詳細ページから運転計画を取得
     $plan = $null
     $subResp = Get-Page $detailUrl $TimeoutSec
     if($subResp){
-      $subDoc = $subResp.ParsedHtml
-      $svcDiv = $subDoc.getElementById("mdServiceStatus")
-      if($svcDiv){
-        $dds = $svcDiv.getElementsByTagName("dd")
-        foreach($dd in $dds){
-          if($dd.className -eq "trouble"){
-            $plan = $dd.innerText.Trim()
+      try {
+        $subDoc = $subResp.ParsedHtml
+        $svcDiv = $subDoc.getElementById("mdServiceStatus")
+        if($svcDiv){
+          $dds = $svcDiv.getElementsByTagName("dd")
+          $planTexts = @()
+          foreach($dd in $dds){
+            $txt = $dd.innerText.Trim()
+            if ($txt) { $planTexts += $txt }
           }
+          if ($planTexts.Count -gt 0) {
+            $plan = ($planTexts -join " / ")
+          }
+        }
+      } catch {
+        # fallback: 正規表現でHTMLから抜き出す
+        $html = $subResp.Content
+        $matches = [regex]::Matches($html, '<dd[^>]*>(.*?)</dd>', 'Singleline')
+        $planTexts = @()
+        foreach ($m in $matches) {
+          $t = ($m.Groups[1].Value -replace '<.*?>','').Trim()
+          if ($t) { $planTexts += $t }
+        }
+        if ($planTexts.Count -gt 0) {
+          $plan = ($planTexts -join " / ")
         }
       }
     }
@@ -59,24 +85,53 @@ foreach($tr in $trs){
     $result += [pscustomobject]@{
       路線     = $lineName
       状況     = $status
-      詳細     = $info
+      詳細     = $plan
       URL      = $detailUrl
-      運転計画 = $plan
     }
   }
 }
 
-if ($result.Count -gt 0) {
-    # ステータスごとにまとめて通知
-    $groups = $result | Group-Object 状況
+# === 通知済み状態の管理 ===
+$stateFile = Join-Path $PSScriptRoot "last_state.json"
+$prevState = @{}
+
+if (Test-Path $stateFile) {
+    try {
+        $json = Get-Content $stateFile -Raw | ConvertFrom-Json
+        foreach ($prop in $json.PSObject.Properties) {
+            $prevState[$prop.Name] = $prop.Value
+        }
+    } catch { $prevState = @{} }
+}
+
+$changed = @()
+
+foreach ($r in $result) {
+    $key = $r.路線
+    $value = "$($r.状況):$($r.詳細)"
+
+    if (-not $prevState.ContainsKey($key) -or $prevState[$key] -ne $value) {
+        # 前回と違う場合のみ通知対象に追加
+        $changed += $r
+        # 状態を更新
+        $prevState[$key] = $value
+    }
+}
+
+# === 通知 ===
+if ($changed.Count -gt 0) {
+    $groups = $changed | Group-Object 状況
     foreach ($g in $groups) {
         $msgs = @()
         foreach ($r in $g.Group) {
-            $msgs += "路線: $($r.路線)`n詳細: $($r.詳細)`n運転計画: $($r.運転計画)"
+            $msgs += "路線: $($r.路線)`n詳細: $($r.詳細)"
             $msgs += "" # 空行
         }
         $title = "$($g.Name) 情報"
         $message = $msgs -join "`n"
-        powershell -ExecutionPolicy Bypass -File "$PSScriptRoot/notify.ps1" -Title $title -Message $message
+        & "$PSScriptRoot/notify.ps1" -Title $title -Message $message
     }
+
+    # 状態を保存
+    $prevState | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
 }

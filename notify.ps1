@@ -1,17 +1,3 @@
-<#
-.SYNOPSIS
-  通知を行うラッパースクリプト
-.DESCRIPTION
-  - Mac では Write-Host で通知内容を標準出力
-  - Windows では popup.ps1 を呼び出して WPF 通知を表示
-.PARAMETER Title
-  通知のタイトル
-.PARAMETER Message
-  通知の本文（複数行可）
-.EXAMPLE
-  .\notify.ps1 -Title "運行情報" -Message "山手線 運転見合わせ"
-#>
-
 param(
     [Parameter(Mandatory = $true)]
     [string]$Title,
@@ -20,24 +6,56 @@ param(
     [string]$Message
 )
 
-if ($IsWindows) {
-    # Windowsの場合 → popup.ps1に処理を渡す
-    $popupScript = Join-Path $PSScriptRoot "popup.ps1"
-    if (Test-Path $popupScript) {
-        & powershell -ExecutionPolicy Bypass -File $popupScript -Title $Title -Message $Message
-    }
-    else {
-        Write-Warning "popup.ps1 が見つかりません: $popupScript"
-    }
-}
-elseif ($IsMacOS) {
-    # Macの場合 → 標準出力で代用
-    Write-Host "==== 通知 ===="
-    Write-Host "[$Title]"
-    Write-Host $Message
-    Write-Host "==============="
-}
-else {
-    # Linuxその他
-    Write-Host "[$Title] $Message (通知未対応OS)"
-}
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+
+# WPF Window を直接コードで構築
+$window = New-Object System.Windows.Window
+$window.Title = $Title
+$window.Width = 350
+$window.Height = 150
+$window.WindowStartupLocation = 'Manual'
+$window.Topmost = $true
+$window.ResizeMode = 'NoResize'
+$window.WindowStyle = 'ToolWindow'
+$window.Background = 'LightYellow'
+$window.Opacity = 0.95
+
+# スタックパネル
+$stack = New-Object System.Windows.Controls.StackPanel
+$stack.Margin = '10'
+
+# タイトル
+$titleBlock = New-Object System.Windows.Controls.TextBlock
+$titleBlock.Text = $Title
+$titleBlock.FontSize = 18
+$titleBlock.FontWeight = 'Bold'
+$titleBlock.Margin = '0,0,0,10'
+
+# メッセージ
+$msgBlock = New-Object System.Windows.Controls.TextBlock
+$msgBlock.Text = $Message
+$msgBlock.FontSize = 14
+$msgBlock.TextWrapping = 'Wrap'
+
+$stack.Children.Add($titleBlock) | Out-Null
+$stack.Children.Add($msgBlock)   | Out-Null
+
+$window.Content = $stack
+
+# 右下に配置
+$screenWidth  = [System.Windows.SystemParameters]::PrimaryScreenWidth
+$screenHeight = [System.Windows.SystemParameters]::PrimaryScreenHeight
+$window.Left  = $screenWidth - $window.Width - 20
+$window.Top   = $screenHeight - $window.Height - 150
+
+# タイマーで自動クローズ（10秒後）
+$timer = New-Object System.Windows.Threading.DispatcherTimer
+$timer.Interval = [TimeSpan]::FromSeconds(10)
+$timer.Add_Tick({
+    $timer.Stop()
+    $window.Close()
+})
+$timer.Start()
+
+# 表示
+$window.ShowDialog() | Out-Null

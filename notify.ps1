@@ -51,11 +51,13 @@ $window.add_Loaded({
 
     # === サウンドを鳴らす（Asterisk に変更） ===
     # === サウンドを鳴らす（標準wavを直接再生） ===
-Add-Type -AssemblyName System.Media
-$player = New-Object System.Media.SoundPlayer
-$player.SoundLocation = "C:\Windows\Media\Windows Exclamation.wav"
+Add-Type -AssemblyName PresentationCore
 
-$player.Play()
+$media = New-Object System.Windows.Media.MediaPlayer
+$media.Open([uri]"C:\Windows\Media\Windows Exclamation.wav")
+$media.Volume = 1.0   # 0.0 ～ 1.0 (最大)
+$media.Play()
+
 
 })
 

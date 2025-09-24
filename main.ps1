@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   運行情報チェッカー メインスクリプト
 .DESCRIPTION

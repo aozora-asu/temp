@@ -103,19 +103,24 @@ function Update-UI {
     $window.Dispatcher.Invoke([Action]{}, "Render")
 }
 
-# train.ps1 実行（非同期ジョブ）
-function Run-Train {
-    $trainScript = Join-Path $PSScriptRoot "train.ps1"
-    if (Test-Path $trainScript) {
+# 任意の監視スクリプト実行（非同期ジョブ）
+function Run-Script([string]$name) {
+    $scriptPath = Join-Path $PSScriptRoot $name
+    if (Test-Path $scriptPath) {
         Start-Job -ScriptBlock {
-            & powershell -ExecutionPolicy Bypass -File $using:trainScript
+            & powershell -ExecutionPolicy Bypass -File $using:scriptPath
         } | Out-Null
     }
 }
 
+# 監視対象一覧
+$monitorScripts = @("train.ps1", "whether.ps1", "outage.ps1")
+
+
 # === ボタン処理 ===
 
-# 停止／再開
+# === ボタン処理 ===
+
 $btnControl.Add_Click({
     switch ($script:mode) {
         "Running"      { $script:mode = [Mode]::Stopped }
@@ -125,11 +130,11 @@ $btnControl.Add_Click({
     }
     Update-UI $script:mode (Get-Date)
     if ($script:mode -in @([Mode]::Running, [Mode]::NightRunning)) {
-        Run-Train
+        foreach ($s in $monitorScripts) { Run-Script $s }
     }
 })
 
-# 終了
+# 終了ボタン処理 ← これが抜けていた
 $btnExit.Add_Click({
     $result = [System.Windows.Forms.MessageBox]::Show(
         "本当に終了しますか？", "確認",
@@ -143,6 +148,8 @@ $btnExit.Add_Click({
     }
 })
 
+
+
 # === タイマー ===
 $timer = New-Object System.Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromSeconds(10)
@@ -151,21 +158,21 @@ $timer.Add_Tick({
     $isNight = IsNight $now
 
     # 昼夜自動切替
-    if ($isNight -and $script:mode -eq [Mode]::Running)      { $script:mode = [Mode]::NightStopped }
+    if ($isNight -and $script:mode -eq [Mode]::Running)           { $script:mode = [Mode]::NightStopped }
     if (-not $isNight -and $script:mode -eq [Mode]::NightStopped) { $script:mode = [Mode]::Running }
     if (-not $isNight -and $script:mode -eq [Mode]::NightRunning) { $script:mode = [Mode]::Running }
 
     Update-UI $script:mode $now
     if ($script:mode -in @([Mode]::Running, [Mode]::NightRunning)) {
-        Run-Train
+        foreach ($s in $monitorScripts) { Run-Script $s }
     }
 })
 $timer.Start()
 
-# 初回更新
+# 初回実行
 Update-UI $script:mode (Get-Date)
 if ($script:mode -in @([Mode]::Running, [Mode]::NightRunning)) {
-    Run-Train
+    foreach ($s in $monitorScripts) { Run-Script $s }
 }
 
 # 表示

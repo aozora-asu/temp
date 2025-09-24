@@ -6,56 +6,65 @@ param(
     [string]$Message
 )
 
-Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+Add-Type -AssemblyName PresentationFramework
 
-# WPF Window を直接コードで構築
-$window = New-Object System.Windows.Window
-$window.Title = $Title
-$window.Width = 350
-$window.Height = 150
-$window.WindowStartupLocation = 'Manual'
-$window.Topmost = $true
-$window.ResizeMode = 'NoResize'
-$window.WindowStyle = 'ToolWindow'
-$window.Background = 'LightYellow'
-$window.Opacity = 0.95
+# WPFウィンドウ定義
+[xml]$xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Title="$Title"
+        Width="500"
+        SizeToContent="Height"
+        WindowStartupLocation="Manual"
+        Topmost="True" ResizeMode="NoResize"
+        WindowStyle="ToolWindow" Background="LightYellow" Opacity="0.95">
+    <Border CornerRadius="8" BorderBrush="Gray" BorderThickness="1" Padding="10">
+        <StackPanel>
+            <TextBlock Name="TitleText" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
+            <TextBlock Name="MessageText" FontSize="14" TextWrapping="Wrap"/>
+        </StackPanel>
+    </Border>
+</Window>
+"@
 
-# スタックパネル
-$stack = New-Object System.Windows.Controls.StackPanel
-$stack.Margin = '10'
+$reader = (New-Object System.Xml.XmlNodeReader $xaml)
+$window = [Windows.Markup.XamlReader]::Load($reader)
 
-# タイトル
-$titleBlock = New-Object System.Windows.Controls.TextBlock
-$titleBlock.Text = $Title
-$titleBlock.FontSize = 18
-$titleBlock.FontWeight = 'Bold'
-$titleBlock.Margin = '0,0,0,10'
+# テキスト代入
+$window.FindName("TitleText").Text   = $Title
+$window.FindName("MessageText").Text = $Message
 
-# メッセージ
-$msgBlock = New-Object System.Windows.Controls.TextBlock
-$msgBlock.Text = $Message
-$msgBlock.FontSize = 14
-$msgBlock.TextWrapping = 'Wrap'
-
-$stack.Children.Add($titleBlock) | Out-Null
-$stack.Children.Add($msgBlock)   | Out-Null
-
-$window.Content = $stack
-
-# 右下に配置
+# 画面サイズ
 $screenWidth  = [System.Windows.SystemParameters]::PrimaryScreenWidth
 $screenHeight = [System.Windows.SystemParameters]::PrimaryScreenHeight
-$window.Left  = $screenWidth - $window.Width - 20
-$window.Top   = $screenHeight - $window.Height - 150
+$margin = 20
 
-# タイマーで自動クローズ（10秒後）
-$timer = New-Object System.Windows.Threading.DispatcherTimer
-$timer.Interval = [TimeSpan]::FromSeconds(10)
-$timer.Add_Tick({
-    $timer.Stop()
-    $window.Close()
+# 表示前に Loaded イベントで位置を調整する
+# 表示前に Loaded イベントで位置を調整 + 音再生
+# 表示前に Loaded イベントで位置を調整 + 音再生
+$window.add_Loaded({
+    $window.UpdateLayout()
+
+    $window.Left = $screenWidth - $window.ActualWidth - $margin
+    $topPos = $screenHeight - $window.ActualHeight - $margin
+    if ($topPos -lt 0) { $topPos = 0 }
+    $window.Top = $topPos
+
+    # === サウンドを鳴らす（Asterisk に変更） ===
+    # === サウンドを鳴らす（標準wavを直接再生） ===
+Add-Type -AssemblyName System.Media
+$player = New-Object System.Media.SoundPlayer
+$player.SoundLocation = "C:\Windows\Media\Windows Exclamation.wav"
+
+$player.Play()
+
 })
+
+
+
+# タイマー：10秒後に自動で閉じる
+$timer = New-Object Windows.Threading.DispatcherTimer
+$timer.Interval = [TimeSpan]::FromSeconds(10)
+$timer.Add_Tick({ $window.Close() })
 $timer.Start()
 
-# 表示
 $window.ShowDialog() | Out-Null

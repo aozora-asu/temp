@@ -39,8 +39,6 @@ $screenHeight = [System.Windows.SystemParameters]::PrimaryScreenHeight
 $margin = 20
 
 # 表示前に Loaded イベントで位置を調整する
-# 表示前に Loaded イベントで位置を調整 + 音再生
-# 表示前に Loaded イベントで位置を調整 + 音再生
 $window.add_Loaded({
     $window.UpdateLayout()
 
@@ -64,9 +62,9 @@ $media.Play()
 
 
 # タイマー：10秒後に自動で閉じる
-$timer = New-Object Windows.Threading.DispatcherTimer
-$timer.Interval = [TimeSpan]::FromSeconds(10)
-$timer.Add_Tick({ $window.Close() })
-$timer.Start()
+# $timer = New-Object Windows.Threading.DispatcherTimer
+# $timer.Interval = [TimeSpan]::FromSeconds(60-)
+# $timer.Add_Tick({ $window.Close() })
+# $timer.Start()
 
 $window.ShowDialog() | Out-Null

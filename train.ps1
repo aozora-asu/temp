@@ -121,6 +121,8 @@ foreach ($r in $result) {
 # === 通知 ===
 if ($changed.Count -gt 0) {
     $groups = $changed | Group-Object 状況
+    # 状態を保存
+    $prevState | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
     foreach ($g in $groups) {
         $msgs = @()
         foreach ($r in $g.Group) {
@@ -132,6 +134,5 @@ if ($changed.Count -gt 0) {
         & "$PSScriptRoot/notify.ps1" -Title $title -Message $message
     }
 
-    # 状態を保存
-    $prevState | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
+    
 }

@@ -121,6 +121,10 @@ foreach ($k in @($prevState.Keys)) {
     }
 }
 
+# 状態を保存
+$prevState | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
+
+
 # === 通知 ===
 foreach ($c in $changed) {
     & "$PSScriptRoot/notify.ps1" -Title $c.Title -Message $c.Message
@@ -135,5 +139,4 @@ foreach ($c in $changed) {
     }
 }
 
-# 状態を保存
-$prevState | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
+

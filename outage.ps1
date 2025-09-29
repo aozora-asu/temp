@@ -49,7 +49,7 @@ $globalNotices = Get-Notices $xmlAll
 # 停電1000件超の都道府県
 $current = @{}
 $prefResults = foreach ($area in $xmlAll."東京電力停電情報".エリア) {
-    if ($area.停電軒数 -and [int]$area.停電軒数 -gt 1) {
+    if ($area.停電軒数 -and [int]$area.停電軒数 -gt 1000) {
         [PSCustomObject]@{
             都道府県    = $area.名前
             停電軒数    = [int]$area.停電軒数
@@ -121,8 +121,6 @@ foreach ($k in @($prevState.Keys)) {
     }
 }
 
-# 状態を保存
-$prevState | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
 
 
 # === 通知 ===
@@ -139,4 +137,6 @@ foreach ($c in $changed) {
     }
 }
 
+# 状態を保存
+$prevState | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
 

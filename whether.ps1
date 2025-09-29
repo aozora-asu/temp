@@ -171,9 +171,7 @@ foreach ($pref in $prevState.Keys) {
     }
 }
 
-# === 状態を保存 ===
-$prevState = $current.Clone()
-$prevState | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
+
 # === 通知本文生成 ===
 if ($notifyNew.Count -gt 0) {
     $msg = "【警戒情報】`n" + ($notifyNew -join "`n`n")
@@ -186,4 +184,6 @@ if ($notifyRecover.Count -gt 0) {
     Write-Output $msg
 }
 
-
+# === 状態を保存 ===
+$prevState = $current.Clone()
+$prevState | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8

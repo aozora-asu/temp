@@ -10,28 +10,29 @@
   - UIは即時反映、train.ps1は非同期実行
 #>
 
-Add-Type -AssemblyName PresentationFramework
-Add-Type -AssemblyName PresentationCore
-Add-Type -AssemblyName WindowsBase
-Add-Type -AssemblyName System.Windows.Forms   # 確認ダイアログ用
 
-# 夜間判定関数
-function IsNight([datetime]$dt) {
-    return ($dt.Hour -ge 0 -and $dt.Hour -lt 4 -and $dt.Minute -eq 45)
-}
+# すべてのエラーを例外扱いに
+$ErrorActionPreference = "Stop"
 
-# Mode列挙体
-enum Mode {
-    Stopped
-    Running
-    NightStopped
-    NightRunning
-}
+try {
+    # -------------------------
+    # ここから既存コード
+    # -------------------------
+    Add-Type -AssemblyName PresentationFramework
+    Add-Type -AssemblyName PresentationCore
+    Add-Type -AssemblyName WindowsBase
+    Add-Type -AssemblyName System.Windows.Forms   # 確認ダイアログ用
 
-# WPFウィンドウ定義
-[xml]$xaml = @"
+    # 夜間判定関数
+    function IsNight([datetime]$dt) {
+        return ($dt.Hour -ge 0 -and $dt.Hour -lt 4 -and $dt.Minute -eq 45)
+    }
+
+    enum Mode { Stopped; Running; NightStopped; NightRunning }
+
+    [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        Title="運行チェッカー"
+        Title="電車・気象・停電チェッカー"
         Height="100" Width="220"
         WindowStartupLocation="Manual"
         Topmost="True" ResizeMode="NoResize"
@@ -50,130 +51,113 @@ enum Mode {
 </Window>
 "@
 
-# WPFロード
-$reader = (New-Object System.Xml.XmlNodeReader $xaml)
-$window = [Windows.Markup.XamlReader]::Load($reader)
+    $reader = (New-Object System.Xml.XmlNodeReader $xaml)
+    $window = [Windows.Markup.XamlReader]::Load($reader)
 
-# 右下配置
-$screenWidth  = [System.Windows.SystemParameters]::PrimaryScreenWidth
-$screenHeight = [System.Windows.SystemParameters]::PrimaryScreenHeight
-$window.Left  = $screenWidth - $window.Width - 20
-$window.Top   = $screenHeight - $window.Height - 120
+    # 右下配置
+    $screenWidth  = [System.Windows.SystemParameters]::PrimaryScreenWidth
+    $screenHeight = [System.Windows.SystemParameters]::PrimaryScreenHeight
+    $window.Left  = $screenWidth - $window.Width - 20
+    $window.Top   = $screenHeight - $window.Height - 120
 
-# UI要素
-$statusLabel = $window.FindName("StatusText")
-$btnControl  = $window.FindName("ControlButton")
-$btnExit     = $window.FindName("ExitButton")
+    $statusLabel = $window.FindName("StatusText")
+    $btnControl  = $window.FindName("ControlButton")
+    $btnExit     = $window.FindName("ExitButton")
 
-# 初期モード
-$now = Get-Date
-if (IsNight $now) { $script:mode = [Mode]::NightStopped }
-else              { $script:mode = [Mode]::Running }
+    # 初期モード
+    $now = Get-Date
+    if (IsNight $now) { $script:mode = [Mode]::NightStopped }
+    else              { $script:mode = [Mode]::Running }
 
-# === 共通関数 ===
-
-# UI更新関数（即時描画）
-function Update-UI {
-    param([Mode]$m, [datetime]$now)
-
-    switch ($m) {
-        "Stopped" {
-            $statusLabel.Text = "停止中"
-            $window.Background = "Tomato"
-            $btnControl.Content = "再開"
+    function Update-UI {
+        param([Mode]$m, [datetime]$now)
+        switch ($m) {
+            "Stopped"      { $statusLabel.Text = "停止中"; $window.Background = "Tomato"; $btnControl.Content = "再開" }
+            "Running"      { $statusLabel.Text = "稼働中 ($($now.ToString('HH:mm:ss')))"; $window.Background = "LightGreen"; $btnControl.Content = "停止" }
+            "NightStopped" { $statusLabel.Text = "停止時間帯 (0-4時)"; $window.Background = "Khaki"; $btnControl.Content = "再開" }
+            "NightRunning" { $statusLabel.Text = "稼働中 (夜間)"; $window.Background = "LightBlue"; $btnControl.Content = "停止" }
         }
-        "Running" {
-            $statusLabel.Text = "稼働中 ($($now.ToString('HH:mm:ss')))"
-            $window.Background = "LightGreen"
-            $btnControl.Content = "停止"
-        }
-        "NightStopped" {
-            $statusLabel.Text = "停止時間帯 (0-4時)"
-            $window.Background = "Khaki"
-            $btnControl.Content = "再開"
-        }
-        "NightRunning" {
-            $statusLabel.Text = "稼働中 (夜間)"
-            $window.Background = "LightBlue"
-            $btnControl.Content = "停止"
+        $window.Dispatcher.Invoke([Action]{}, "Render")
+    }
+
+    function Run-Script([string]$name) {
+        $scriptPath = Join-Path $PSScriptRoot $name
+        if (Test-Path $scriptPath) {
+            Start-Job -ScriptBlock {
+                & powershell -ExecutionPolicy Bypass -File $using:scriptPath
+            } | Out-Null
         }
     }
 
-    # UIを即時描画
-    $window.Dispatcher.Invoke([Action]{}, "Render")
-}
+    $monitorScripts = @("train.ps1", "whether.ps1", "outage.ps1")
 
-# 任意の監視スクリプト実行（非同期ジョブ）
-function Run-Script([string]$name) {
-    $scriptPath = Join-Path $PSScriptRoot $name
-    if (Test-Path $scriptPath) {
-        Start-Job -ScriptBlock {
-            & powershell -ExecutionPolicy Bypass -File $using:scriptPath
-        } | Out-Null
-    }
-}
+    $btnControl.Add_Click({
+        switch ($script:mode) {
+            "Running"      { $script:mode = [Mode]::Stopped }
+            "Stopped"      { $script:mode = [Mode]::Running }
+            "NightStopped" { $script:mode = [Mode]::NightRunning }
+            "NightRunning" { $script:mode = [Mode]::NightStopped }
+        }
+        Update-UI $script:mode (Get-Date)
+        if ($script:mode -in @([Mode]::Running, [Mode]::NightRunning)) {
+            foreach ($s in $monitorScripts) { Run-Script $s }
+        }
+    })
 
-# 監視対象一覧
-$monitorScripts = @("train.ps1", "whether.ps1", "outage.ps1")
+    $btnExit.Add_Click({
+        $result = [System.Windows.Forms.MessageBox]::Show(
+            "本当に終了しますか？", "確認",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Question
+        )
+        if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+            $window.Close()
+            [System.Windows.Application]::Current.Shutdown()
+            Stop-Process -Id $PID -Force
+        }
+    })
 
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromSeconds(10)
+    $timer.Add_Tick({
+        $now = Get-Date
+        $isNight = IsNight $now
+        if ($isNight -and $script:mode -eq [Mode]::Running)           { $script:mode = [Mode]::NightStopped }
+        if (-not $isNight -and $script:mode -eq [Mode]::NightStopped) { $script:mode = [Mode]::Running }
+        if (-not $isNight -and $script:mode -eq [Mode]::NightRunning) { $script:mode = [Mode]::Running }
+        Update-UI $script:mode $now
+        if ($script:mode -in @([Mode]::Running, [Mode]::NightRunning)) {
+            foreach ($s in $monitorScripts) { Run-Script $s }
+        }
+    })
+    $timer.Start()
 
-# === ボタン処理 ===
-
-# === ボタン処理 ===
-
-$btnControl.Add_Click({
-    switch ($script:mode) {
-        "Running"      { $script:mode = [Mode]::Stopped }
-        "Stopped"      { $script:mode = [Mode]::Running }
-        "NightStopped" { $script:mode = [Mode]::NightRunning }
-        "NightRunning" { $script:mode = [Mode]::NightStopped }
-    }
     Update-UI $script:mode (Get-Date)
     if ($script:mode -in @([Mode]::Running, [Mode]::NightRunning)) {
         foreach ($s in $monitorScripts) { Run-Script $s }
     }
-})
 
-# 終了ボタン処理 ← これが抜けていた
-$btnExit.Add_Click({
-    $result = [System.Windows.Forms.MessageBox]::Show(
-        "本当に終了しますか？", "確認",
-        [System.Windows.Forms.MessageBoxButtons]::YesNo,
-        [System.Windows.Forms.MessageBoxIcon]::Question
-    )
-    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
-        $window.Close()
-        [System.Windows.Application]::Current.Shutdown()
-        exit
+    $window.ShowDialog()
+}
+catch {
+    # ログファイル出力
+    $logPath = Join-Path $PSScriptRoot "error.log"
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path $logPath -Value "$timestamp [ERROR] $($_.Exception.Message)"
+    if ($_.ScriptStackTrace) {
+        Add-Content -Path $logPath -Value "$($_.ScriptStackTrace)"
     }
-})
 
+    # ダイアログ表示
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.MessageBox]::Show(
+        "エラーが起きたため強制終了しました。もう一度お試しください。",
+        "運行チェッカー",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
 
-
-# === タイマー ===
-$timer = New-Object System.Windows.Threading.DispatcherTimer
-$timer.Interval = [TimeSpan]::FromSeconds(10)
-$timer.Add_Tick({
-    $now = Get-Date
-    $isNight = IsNight $now
-
-    # 昼夜自動切替
-    if ($isNight -and $script:mode -eq [Mode]::Running)           { $script:mode = [Mode]::NightStopped }
-    if (-not $isNight -and $script:mode -eq [Mode]::NightStopped) { $script:mode = [Mode]::Running }
-    if (-not $isNight -and $script:mode -eq [Mode]::NightRunning) { $script:mode = [Mode]::Running }
-
-    Update-UI $script:mode $now
-    if ($script:mode -in @([Mode]::Running, [Mode]::NightRunning)) {
-        foreach ($s in $monitorScripts) { Run-Script $s }
-    }
-})
-$timer.Start()
-
-# 初回実行
-Update-UI $script:mode (Get-Date)
-if ($script:mode -in @([Mode]::Running, [Mode]::NightRunning)) {
-    foreach ($s in $monitorScripts) { Run-Script $s }
+    # 強制終了
+    Stop-Process -Id $PID -Force
 }
 
-# 表示
-$window.ShowDialog()
